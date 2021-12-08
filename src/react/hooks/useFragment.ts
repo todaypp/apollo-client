@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useSyncExternalStore } from "use-sync-external-store/shim";
 import { equal } from "@wry/equality";
 
@@ -30,6 +31,8 @@ export interface UseFragmentResult<TData> {
   data: TData | undefined,
   complete: boolean,
   missing?: MissingTree;
+  previousResult?: UseFragmentResult<TData>;
+  lastCompleteResult?: UseFragmentResult<TData>;
 }
 
 export function useFragment<TData, TVars>(
@@ -53,7 +56,7 @@ export function useFragment<TData, TVars>(
   };
 
   let latestDiff = cache.diff<TData>(diffOptions);
-  let latestResult = diffToResult(latestDiff);
+  let resultRef = useRef<UseFragmentResult<TData>>();
 
   return useSyncExternalStore(
     forceUpdate => {
@@ -64,7 +67,7 @@ export function useFragment<TData, TVars>(
         callback(diff) {
           if (!immediate && !equal(diff, latestDiff)) {
             latestDiff = diff;
-            latestResult = diffToResult(diff);
+            resultRef.current = diffToResult(diff, resultRef.current);
             forceUpdate();
           }
           immediate = false;
@@ -72,12 +75,15 @@ export function useFragment<TData, TVars>(
       });
     },
 
-    () => latestResult,
+    () => resultRef.current || (
+      resultRef.current = diffToResult(latestDiff, resultRef.current)
+    ),
   );
 }
 
 function diffToResult<TData>(
   diff: Cache.DiffResult<TData>,
+  previousResult?: UseFragmentResult<TData>,
 ): UseFragmentResult<TData> {
   const result: UseFragmentResult<TData> = {
     data: diff.result,
@@ -88,6 +94,22 @@ function diffToResult<TData>(
     result.missing = mergeDeepArray(
       diff.missing.map(error => error.missing),
     );
+  }
+
+  if (previousResult) {
+    result.previousResult = previousResult;
+  }
+
+  const lastCompleteResult = result.complete ? result : (
+    previousResult && (
+      previousResult.complete
+        ? previousResult
+        : previousResult.lastCompleteResult
+    )
+  );
+
+  if (lastCompleteResult) {
+    result.lastCompleteResult = lastCompleteResult;
   }
 
   return result;
