@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "use-sync-external-store/shim";
 import { equal } from "@wry/equality";
 
 import { mergeDeepArray } from "../../utilities";
@@ -52,31 +52,41 @@ export function useFragment<TData, TVars>(
     optimistic,
   };
 
-  const preDiff = cache.diff<TData>(diffOptions);
-  const setDiff = useState(preDiff)[1];
+  let latestDiff = cache.diff<TData>(diffOptions);
+  let latestResult = diffToResult(latestDiff);
 
-  useEffect(() => {
-    let immediate = true;
-    return cache.watch({
-      ...diffOptions,
-      immediate,
-      callback(newDiff) {
-        if (!immediate || !equal(newDiff, preDiff)) {
-          setDiff(newDiff);
-        }
-        immediate = false;
-      },
-    });
-  }, [preDiff]);
+  return useSyncExternalStore(
+    forceUpdate => {
+      let immediate = true;
+      return cache.watch({
+        ...diffOptions,
+        immediate,
+        callback(diff) {
+          if (!immediate && !equal(diff, latestDiff)) {
+            latestDiff = diff;
+            latestResult = diffToResult(diff);
+            forceUpdate();
+          }
+          immediate = false;
+        },
+      });
+    },
 
+    () => latestResult,
+  );
+}
+
+function diffToResult<TData>(
+  diff: Cache.DiffResult<TData>,
+): UseFragmentResult<TData> {
   const result: UseFragmentResult<TData> = {
-    data: preDiff.result,
-    complete: !!preDiff.complete,
+    data: diff.result,
+    complete: !!diff.complete,
   };
 
-  if (preDiff.missing) {
+  if (diff.missing) {
     result.missing = mergeDeepArray(
-      preDiff.missing.map(error => error.missing)
+      diff.missing.map(error => error.missing),
     );
   }
 
