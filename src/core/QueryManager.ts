@@ -36,7 +36,7 @@ import {
   ErrorPolicy,
   MutationFetchPolicy,
 } from './watchQueryOptions';
-import { ObservableQuery, applyNextFetchPolicy, logMissingFieldErrors } from './ObservableQuery';
+import { ObservableQuery, logMissingFieldErrors } from './ObservableQuery';
 import { NetworkStatus, isNetworkRequestInFlight } from './networkStatus';
 import {
   ApolloQueryResult,
@@ -1148,7 +1148,10 @@ export class QueryManager<TStore> {
 
     concast.cleanup(() => {
       this.fetchCancelFns.delete(queryId);
-      applyNextFetchPolicy(options);
+
+      if (queryInfo.observableQuery) {
+        queryInfo.observableQuery["applyNextFetchPolicy"]("after-fetch", options);
+      }
     });
 
     return concast;
