@@ -19,15 +19,49 @@ import {
 import { DocumentType, verifyDocumentType } from '../parser';
 import { useApolloClient } from './useApolloClient';
 
+type QueryHookOptionsFunction<TData, TVariables> = (
+  options: QueryHookOptions<TData, TVariables>,
+) => QueryHookOptions<TData, TVariables>;
+
+function useNormalizedOptions<TData, TVariables>(
+  optionsOrFunction:
+    | QueryHookOptions<TData, TVariables>
+    | QueryHookOptionsFunction<TData, TVariables>
+    | undefined,
+): QueryHookOptions<TData, TVariables> {
+  const optionsRef = useRef<QueryHookOptions<TData, TVariables>>();
+  let options: QueryHookOptions<TData, TVariables> =
+    optionsRef.current || Object.create(null);
+
+  if (typeof optionsOrFunction === "function") {
+    const newOptions = optionsOrFunction(options);
+    if (newOptions !== options) {
+      Object.assign(options, newOptions, {
+        variables: {
+          ...options.variables,
+          ...newOptions.variables,
+        },
+      });
+    }
+  } else if (optionsOrFunction && !equal(optionsOrFunction, options)) {
+    options = optionsOrFunction;
+  }
+
+  return optionsRef.current = options;
+}
+
 export function useQuery<
   TData = any,
   TVariables = OperationVariables,
 >(
   query: DocumentNode | TypedDocumentNode<TData, TVariables>,
-  options?: QueryHookOptions<TData, TVariables>,
+  optionsOrFunction?:
+    | QueryHookOptions<TData, TVariables>
+    | QueryHookOptionsFunction<TData, TVariables>
 ): QueryResult<TData, TVariables> {
+  const options = useNormalizedOptions(optionsOrFunction);
   const context = useContext(getApolloContext());
-  const client = useApolloClient(options?.client);
+  const client = useApolloClient(options.client);
   verifyDocumentType(query, DocumentType.Query);
   const [obsQuery, setObsQuery] = useState(() => {
     const watchQueryOptions = createWatchQueryOptions(query, options);
@@ -52,8 +86,8 @@ export function useQuery<
 
     if (
       context.renderPromises &&
-      options?.ssr !== false &&
-      !options?.skip &&
+      options.ssr !== false &&
+      !options.skip &&
       obsQuery.getCurrentResult().loading
     ) {
       // TODO: This is a legacy API which could probably be cleaned up
@@ -90,7 +124,7 @@ export function useQuery<
 
   let [result, setResult] = useState(() => {
     const result = obsQuery.getCurrentResult();
-    if (!result.loading && options) {
+    if (!result.loading) {
       if (result.error) {
         options.onError?.(result.error);
       } else if (result.data) {
@@ -133,7 +167,7 @@ export function useQuery<
       }
 
       setResult(ref.current.result = nextResult);
-      if (!nextResult.loading && options) {
+      if (!nextResult.loading) {
         if (!result.loading) {
           if (result.error) {
             options.onError?.(result.error);
